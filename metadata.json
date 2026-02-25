@@ -1,0 +1,5 @@
+{
+  "name": "Face Morph AI",
+  "description": "Generate creative images based on your face and a text prompt using Gemini AI.",
+  "requestFramePermissions": []
+}

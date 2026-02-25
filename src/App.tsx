@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { 
   Upload, 
   Image as ImageIcon, 
@@ -17,8 +16,6 @@ import {
   Shirt
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 interface ImageUploadProps {
   image: string | null;
@@ -135,58 +132,54 @@ export default function App() {
     setResultImage(null);
 
     try {
-      const parts: any[] = [];
-      
-      // Add face image
-      const faceBase64 = faceImage.split(',')[1];
-      const faceMime = faceImage.split(';')[0].split(':')[1];
-      parts.push({
-        inlineData: {
-          data: faceBase64,
-          mimeType: faceMime,
+      const response = await fetch('/api/morph', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          faceImage,
+          clothingImage,
+          prompt,
+          model: 'google/gemini-2.0-flash-001'
+        })
       });
 
-      // Add clothing image if exists
-      if (clothingImage) {
-        const clothBase64 = clothingImage.split(',')[1];
-        const clothMime = clothingImage.split(';')[0].split(':')[1];
-        parts.push({
-          inlineData: {
-            data: clothBase64,
-            mimeType: clothMime,
-          },
-        });
-      }
-
-      // Add prompt
-      let fullPrompt = `Based on the provided face image, generate a new image with the following prompt: ${prompt}. Maintain the facial features but transform the style and context as requested.`;
-      if (clothingImage) {
-        fullPrompt += ` Also, incorporate the style, pattern, or specific clothing item from the second provided image into the final result.`;
-      }
-
-      parts.push({ text: fullPrompt });
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: { parts },
-      });
-
-      let foundImage = false;
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          setResultImage(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`);
-          foundImage = true;
-          break;
+      const contentType = response.headers.get("content-type");
+      if (!response.ok) {
+        let errorMessage = 'Failed to generate';
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } else {
+          errorMessage = await response.text();
         }
+        throw new Error(errorMessage);
       }
 
-      if (!foundImage) {
-        throw new Error("Model did not return an image. Try a different prompt.");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Received non-JSON response from server");
+      }
+
+      const data = await response.json();
+      
+      // Logika penanganan respons OpenRouter
+      // Jika model mengembalikan teks (seperti Gemini Flash di OpenRouter), kita tampilkan sebagai error/info
+      // karena aplikasi ini didesain untuk output gambar.
+      const content = data.choices?.[0]?.message?.content;
+      
+      if (typeof content === 'string' && content.startsWith('data:image')) {
+        setResultImage(content);
+      } else if (content) {
+        // Jika model mengembalikan teks, kita beri tahu user
+        setError("Model OpenRouter mengembalikan teks, bukan gambar. Pastikan Anda menggunakan model yang mendukung output gambar atau gunakan API Gemini langsung untuk fitur morphing.");
+        console.log("Response text:", content);
+      } else {
+        throw new Error("Tidak ada respons yang valid dari OpenRouter.");
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Failed to generate image. Please try again.");
+      setError(err.message || "Gagal memproses permintaan. Periksa API Key OpenRouter Anda di Netlify.");
     } finally {
       setIsGenerating(false);
     }
